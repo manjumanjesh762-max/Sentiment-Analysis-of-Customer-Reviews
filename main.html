@@ -1,0 +1,233 @@
+<!-- Sentiment Analyzer Web Application using Gemini API -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sentiment Analyzer</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-blue': '#1e40af',
+                        'secondary-blue': '#1d4ed8',
+                        'bg-dark': '#0f172a',
+                        'card-dark': '#1e293b',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Load Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom loading spinner */
+        .spinner {
+            border-top-color: #3b82f6;
+            -webkit-animation: spin 1s ease-in-out infinite;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-bg-dark text-white font-sans min-h-screen p-4 sm:p-8 flex items-center justify-center">
+
+    <div class="w-full max-w-2xl">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-white mb-2">AI Review Sentiment Analyzer</h1>
+            <p class="text-gray-400">Classify customer reviews instantly using the Gemini API, simulating a trained ML model.</p>
+        </header>
+
+        <!-- Input Card -->
+        <div class="bg-card-dark p-6 sm:p-8 rounded-xl shadow-2xl border border-gray-700 mb-6">
+            <label for="reviewInput" class="block text-lg font-semibold mb-3 text-gray-200">Enter Customer Review:</label>
+            <textarea id="reviewInput" rows="5" class="w-full p-4 text-gray-100 bg-gray-700 border border-gray-600 rounded-lg focus:ring-secondary-blue focus:border-secondary-blue placeholder-gray-400 resize-none" placeholder="e.g., 'The delivery was quick, and the product quality exceeded my expectations!'"></textarea>
+            
+            <button id="analyzeButton" class="w-full mt-4 py-3 bg-secondary-blue hover:bg-primary-blue text-white font-bold rounded-lg transition duration-200 shadow-lg shadow-blue-900/50 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M7 10a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM5 5a2 2 0 012-2h6a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V5zm12 0h-2V5a2 2 0 012-2z" fill-rule="evenodd" clip-rule="evenodd" />
+                </svg>
+                Analyze Sentiment
+            </button>
+        </div>
+
+        <!-- Output Card -->
+        <div class="bg-card-dark p-6 sm:p-8 rounded-xl shadow-2xl border border-gray-700">
+            <h2 class="text-xl font-semibold mb-3 text-gray-200">Analysis Result:</h2>
+            <div id="resultOutput" class="min-h-[80px] p-4 bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-center">
+                <p id="defaultMessage" class="text-gray-400">Results will appear here after analysis.</p>
+                <div id="loadingIndicator" class="hidden flex items-center space-x-2">
+                    <div class="spinner border-4 border-gray-500 rounded-full w-6 h-6"></div>
+                    <span class="text-lg text-blue-400">Analyzing...</span>
+                </div>
+                <div id="sentimentDisplay" class="hidden text-3xl font-bold"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript for Logic and API Call -->
+    <script>
+        // Global variable provided by the canvas environment
+        const apiKey = ""; 
+
+        // DOM Elements
+        const reviewInput = document.getElementById('reviewInput');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const defaultMessage = document.getElementById('defaultMessage');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const sentimentDisplay = document.getElementById('sentimentDisplay');
+
+        /**
+         * Utility function to convert raw classification into styled HTML.
+         * @param {string} sentiment - The raw sentiment string (Positive, Negative, Neutral).
+         * @returns {string} Styled HTML string.
+         */
+        function getStyledSentiment(sentiment) {
+            const normalizedSentiment = sentiment.trim().toUpperCase();
+            let colorClass, emoji;
+
+            switch (normalizedSentiment) {
+                case 'POSITIVE':
+                    colorClass = 'text-green-400';
+                    emoji = '😃 POSITIVE';
+                    break;
+                case 'NEGATIVE':
+                    colorClass = 'text-red-400';
+                    emoji = '😞 NEGATIVE';
+                    break;
+                case 'NEUTRAL':
+                    colorClass = 'text-yellow-400';
+                    emoji = '😐 NEUTRAL';
+                    break;
+                default:
+                    colorClass = 'text-gray-400';
+                    emoji = '❓ UNKNOWN';
+            }
+
+            return `<span class="${colorClass} text-5xl">${emoji}</span>`;
+        }
+        
+        /**
+         * General-purpose API call function with exponential backoff for retries.
+         */
+        async function makeApiCallWithRetry(payload, maxRetries = 3, delay = 1000) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        return await response.json();
+                    } else if (response.status === 429 && attempt < maxRetries - 1) {
+                        // Rate limit error, wait and retry
+                        console.warn(`Rate limit encountered. Retrying in ${delay / 1000}s... (Attempt ${attempt + 1})`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                    } else {
+                        // Other non-retriable error
+                        const errorBody = await response.text();
+                        throw new Error(`API call failed with status ${response.status}: ${errorBody}`);
+                    }
+                } catch (error) {
+                    if (attempt === maxRetries - 1) {
+                        console.error("Final API call attempt failed:", error);
+                        throw new Error("Failed to connect to the AI service after multiple retries.");
+                    }
+                    // For network errors, wait and retry
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+
+        /**
+         * Handles the main logic for analyzing the sentiment.
+         */
+        async function analyzeSentiment() {
+            const userQuery = reviewInput.value.trim();
+
+            if (!userQuery) {
+                // Display error message in the result area
+                sentimentDisplay.innerHTML = `<span class="text-yellow-500 text-lg">Please enter a review to analyze.</span>`;
+                sentimentDisplay.classList.remove('hidden');
+                defaultMessage.classList.add('hidden');
+                return;
+            }
+
+            // 1. Update UI to Loading State
+            analyzeButton.disabled = true;
+            analyzeButton.textContent = 'Analyzing...';
+            analyzeButton.classList.add('opacity-50');
+            defaultMessage.classList.add('hidden');
+            sentimentDisplay.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+
+            // Define the system instruction to force a clean, single-word output
+            const systemPrompt = "You are a specialized Sentiment Analysis AI. Your task is to analyze the provided customer review and classify its sentiment as either 'Positive', 'Negative', or 'Neutral'. Respond *only* with the classification word (e.g., 'Positive', 'Negative', or 'Neutral'). Do not include any explanation, code, or additional text.";
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                }
+            };
+
+            try {
+                const result = await makeApiCallWithRetry(payload);
+                
+                let sentimentText = "Unknown"; // Default fail state
+                
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    sentimentText = candidate.content.parts[0].text;
+                }
+
+                // 2. Update UI with Result
+                sentimentDisplay.innerHTML = getStyledSentiment(sentimentText);
+                sentimentDisplay.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Sentiment Analysis Error:", error);
+                sentimentDisplay.innerHTML = `<span class="text-red-500 text-lg">Error: Failed to process request. Check console for details.</span>`;
+                sentimentDisplay.classList.remove('hidden');
+            } finally {
+                // 3. Reset UI State
+                loadingIndicator.classList.add('hidden');
+                analyzeButton.disabled = false;
+                analyzeButton.textContent = 'Analyze Sentiment';
+                analyzeButton.classList.remove('opacity-50');
+            }
+        }
+
+        // Event Listener for Button
+        analyzeButton.addEventListener('click', analyzeSentiment);
+
+        // Allow pressing Enter in the textarea to submit
+        reviewInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                analyzeSentiment();
+            }
+        });
+    </script>
+
+</body>
+</html>
